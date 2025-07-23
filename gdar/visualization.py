@@ -3,31 +3,65 @@ import numpy as np
 import networkx as nx
 from matplotlib import cm
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.patches import ArrowStyle
 
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+	"""
+	Truncate a colormap to a specified range.
+
+	Parameters:
+		cmap (Colormap): The colormap to truncate.
+		minval (float): The lower bound of the range to keep (0.0 to 1.0).
+		maxval (float): The upper bound of the range to keep (0.0 to 1.0).
+		n (int): Number of colors in the truncated colormap.
+	Returns:
+		LinearSegmentedColormap: A new colormap that is truncated to the specified range.
+	"""
 	new_cmap = LinearSegmentedColormap.from_list(
 		'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
 		cmap(np.linspace(minval, maxval, n)))
 	return new_cmap
 
+def set_edge_weights(edge_list, edge_weights=None):
+	"""
+	Set weights for edges in a graph. This is needed for creating a NetworkX graph with weighted edges.
+	Parameters:
+		edge_list (list): List of edges in the graph, where each edge is a tuple (node1, node2).
+		edge_weights (list, optional): List of weights corresponding to each edge. If None, all edges are assigned a
+		weight of 1.
+	Returns:
+		list: List of edges with weights, where each edge is a tuple (node1, node2, {'weight': weight}).
+	"""
+	if edge_weights is None:
+		edge_weights = np.ones(len(edge_list))
+	elif len(edge_weights) != len(edge_list):
+		raise TypeError('edge signal s1 must have same length as edge_list')
+
+	edge_list_with_weights = []
+	for i in range(len(edge_weights)):
+		if edge_weights[i] < 0:
+			# flip direction of edge if weight is negative
+			edge_list_with_weights.append((edge_list[i][1], edge_list[i][0], {'weight': -edge_weights[i]}))
+		else:
+			edge_list_with_weights.append((edge_list[i][0], edge_list[i][1], {'weight': edge_weights[i]}))
+
+	return edge_list_with_weights
+
 def plot_graph(graph, directed=True, **kwargs):
 	"""
-	:param graph:
-	:param directed:
-	:param kwargs:
-	:return:
+	Plot graph using NetworkX.
+
+	Parameters:
+		graph (:class:`gdar.graph.Graph`): Graph object containing edge_list and node_positions.
+		directed (bool): If True, plot as directed graph; otherwise, as undirected.
+		kwargs: Additional keyword arguments for the NetworkX draw function.
 	"""
 
-	edge_list = graph.edge_list
+	edge_list_with_weights = set_edge_weights(graph.edge_list, edge_weights=None)
 
 	if not directed:
-		G = nx.Graph(edge_list)
+		G = nx.Graph(edge_list_with_weights)
 	else:
-		edge_list_direction_corr = graph.edge_list_correct_direction(edge_list)
-		G = nx.DiGraph(edge_list_direction_corr)
-
-	kwargs_extended = {}
+		G = nx.DiGraph(edge_list_with_weights)
 
 	if 'width' not in kwargs:
 		kwargs['width'] = 3.0
@@ -41,36 +75,50 @@ def plot_graph(graph, directed=True, **kwargs):
 
 	nx.draw(G, pos=graph.node_positions, **kwargs)
 
-def plot_flow_graph(flow_signal, directed=True, **kwargs):
+def plot_flow_graph(graph, flow_vector, directed=True, **kwargs):
 	"""
-	:param flow_signal: FlowSignal object
-		if flow contains more than one snapshot, plot fist snapshot
-	:param kwargs:
-	:return:
+	Plot flow graph using NetworkX.
+
+	Parameters:
+		graph (:class:`gdar.graph.Graph`): Graph object containing edge_list and node_positions.
+		flow_vector (np.ndarray): Flow vector with flow values for each edge.
+		directed (bool): If True, plot as directed graph; otherwise, as undirected.
+		kwargs: Additional keyword arguments for the NetworkX draw function. The following keyword arguments are set
+		automatically if not provided, or are in addition to the ones already set by NetworkX draw function:
+			- edge_cmap: Colormap for edge weights (default: cm.bwr).
+			- vlim_quantile: Quantile for setting vmin and vmax of the colormap (default: None).
+			- edge_vmin: Minimum value for edge weights (default: min(flow_vector)).
+			- edge_vmax: Maximum value for edge weights (default: max(flow_vector)).
+			- width: Width of edges (default: 3.0).
+			- node_size: Size of nodes (default: 100).
+			- node_color: Color of nodes (default: 'lightgray').
+			- color_label: Label for the colorbar (default: 'flow magnitude').
+			- extend: Extend option for the colorbar (default: 'neither').
+			- show_colormap: Whether to show the colormap (default: True).
+			- cmap_pad: Padding for the colormap (default: -0.05).
+			- edgelist: List of edges to highlight in the plot.
+			- ax: Matplotlib axis to draw on (default: current axis).
 	"""
-	flow_signal.set_edge_weights()
-	graph = flow_signal.graph
-	edge_list = graph.edge_list
+	edge_list_with_weights = set_edge_weights(graph.edge_list, edge_weights=flow_vector)
 
 	if not directed:
-		G = nx.Graph(edge_list)
+		G = nx.Graph(edge_list_with_weights)
 	else:
-		edge_list_direction_corr = graph.edge_list_correct_direction(edge_list)
-		G = nx.DiGraph(edge_list_direction_corr)
+		G = nx.DiGraph(edge_list_with_weights)
 
 	kwargs_extended = {}
 
 	if 'edge_cmap' not in kwargs:
 		kwargs['edge_cmap'] = cm.bwr
 	if 'vlim_quantile' in kwargs:
-		vlim = np.quantile(np.abs(flow_signal.f[:,0]), kwargs['vlim_quantile'])
+		vlim = np.quantile(np.abs(flow_vector), kwargs['vlim_quantile'])
 		kwargs['edge_vmin'] = -vlim
 		kwargs['edge_vmax'] = vlim
 		del kwargs['vlim_quantile']
 	if 'edge_vmin' not in kwargs:
-		kwargs['edge_vmin'] = np.min(flow_signal.f[:,0])
+		kwargs['edge_vmin'] = np.min(flow_vector)
 	if 'edge_vmax' not in kwargs:
-		kwargs['edge_vmax'] = np.max(flow_signal.f[:,0])
+		kwargs['edge_vmax'] = np.max(flow_vector)
 	if 'width' not in kwargs:
 		kwargs['width'] = 3.0
 	if 'node_size' not in kwargs:
@@ -135,104 +183,3 @@ def plot_flow_graph(flow_signal, directed=True, **kwargs):
 			sm, pad=kwargs_extended['cmap_pad'], label=kwargs_extended['color_label'], extend=kwargs_extended['extend'],
 			ax=kwargs_extended['ax']
 		)
-
-class NetworkAnimation:
-	def __init__(self, S1_mtx, graph, electrode_pos, electrode_idx, stim1_idx, stim2_idx, m1_nodes, s1_nodes,
-	             vmin=None, vmax=None, cmap='default', node_color='lightgray', stim_node_color='black', figsize=(14,8),
-	             annotation=True):
-		self.graph = graph
-		self.S1_mtx = S1_mtx
-		self.electrode_pos = electrode_pos
-		self.electrode_idx = electrode_idx
-		self.stim1_idx = stim1_idx
-		self.stim2_idx = stim2_idx
-		self.s1_nodes = s1_nodes
-		self.m1_nodes = m1_nodes
-		self.annotation = annotation
-
-		if cmap == 'default':
-			cmap = cm.seismic
-			colors = cmap(np.linspace(0.5, 1, cmap.N // 2))
-			self.cmap = LinearSegmentedColormap.from_list('Upper Half', colors)
-		else:
-			self.cmap = cmap
-
-		self.graph.set_edge_signal(self.S1_mtx[:,0])
-		self.node_color = node_color
-		self.stim_node_color = stim_node_color
-		direction_corr_edge_list = self.graph.edge_list_correct_direction()
-		G1 = nx.DiGraph(direction_corr_edge_list)
-		#G1 = nx.Graph(direction_corr_edge_list)
-
-		if vmin is None:
-			self.vmin = 0
-		else:
-			self.vmin = vmin
-		if vmax is None:
-			self.vmax = np.quantile(abs(self.S1_mtx), 0.95)
-		else:
-			self.vmax = vmax
-
-		edge_width = np.ones(len(direction_corr_edge_list)) * 3.0
-		for k, e in enumerate(G1.edges):
-			if (e[0] in self.m1_nodes and e[1] in self.s1_nodes) or \
-				(e[0] in self.s1_nodes and e[1] in self.m1_nodes):
-				edge_width[k] = 8.0
-
-		self.arrow_style = ArrowStyle.CurveFilledB(head_length=0.8, head_width=0.3)
-
-		if figsize is not None:
-			self.fig, self.ax = plt.subplots(figsize=figsize)
-		nx.draw(G1, pos=self.electrode_pos, edge_color = nx.to_pandas_edgelist(G1)['weight'],
-		        width=edge_width, edge_cmap=self.cmap, node_size=300, node_color=self.node_color,
-		        edge_vmin=self.vmin, edge_vmax=self.vmax, arrowstyle=self.arrow_style)
-
-		self.stim_nodes = []
-		if self.stim1_idx is not None:
-			self.stim_nodes.append(self.stim1_idx)
-		if self.stim2_idx is not None:
-			self.stim_nodes.append(self.stim2_idx)
-
-		if len(self.stim_nodes) > 0:
-			nodes = nx.draw_networkx_nodes(G1, pos=self.electrode_pos, nodelist=self.stim_nodes,
-			                               node_size=700, node_color=self.stim_node_color, node_shape='X', linewidths=3)
-
-		if self.electrode_idx is not None:
-			if len(self.electrode_idx) == len(self.electrode_pos):
-				labels = nx.draw_networkx_labels(G1, pos=self.electrode_pos, labels=self.electrode_idx)
-
-		if self.annotation:
-			sm = plt.cm.ScalarMappable(cmap=self.cmap, norm=plt.Normalize(vmin=self.vmin, vmax=self.vmax))
-			sm._A = []
-			cbar = plt.colorbar(sm, pad=-0.05, label='normalized flow magnitude', extend='max')
-			plt.title(f'Stim + 0 ms')
-
-	def anim_init(self):
-		pass
-
-	def animate(self, frame):
-		self.ax.clear()
-		self.graph.set_edge_signal(self.S1_mtx[:,frame])
-		direction_corr_edge_list = self.graph.edge_list_correct_direction()
-		G1 = nx.DiGraph(direction_corr_edge_list)
-
-		edge_width = np.ones(len(direction_corr_edge_list)) * 3.0
-		for k, e in enumerate(G1.edges):
-			if (e[0] in self.m1_nodes and e[1] in self.s1_nodes) or \
-				(e[0] in self.s1_nodes and e[1] in self.m1_nodes):
-				edge_width[k] = 8.0
-
-		nx.draw(G1, pos=self.electrode_pos, edge_color = nx.to_pandas_edgelist(G1)['weight'],
-		        width=edge_width, edge_cmap=self.cmap, node_size=300, node_color=self.node_color,
-		        edge_vmin=self.vmin, edge_vmax=self.vmax, arrowstyle=self.arrow_style)
-
-		if len(self.stim_nodes) > 0:
-			nodes = nx.draw_networkx_nodes(G1, pos=self.electrode_pos, nodelist=self.stim_nodes,
-			                               node_size=700, node_color=self.stim_node_color, node_shape='X', linewidths=3)
-
-		if self.electrode_idx is not None:
-			if len(self.electrode_idx) == len(self.electrode_pos):
-				labels = nx.draw_networkx_labels(G1, pos=self.electrode_pos, labels=self.electrode_idx)
-
-		if self.annotation:
-			plt.title(f'Stim + {frame} ms')

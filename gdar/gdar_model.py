@@ -1,179 +1,32 @@
 import numpy as np
 from scipy import sparse, fftpack, signal
-from .graph import Graph
 from .flow import FlowSignal
-import cvxpy as cp
-from tqdm.notebook import tqdm
 
-        
-def grid_graph(node_positions):
+class GDARModel():
     """
-    Creates a grid graph
+    Implements the Graph Diffusion Autoregressive (GDAR) model along with other related multivariate autoregressive
+    models. Furthermore, additional sparsity constraints can be applied to the model coefficients.
 
-    :param node_positions: dictionary with node positions. Each entry should be of the form node_id: np.array(x, y)
-    :return: graph object
+    For mathematical details on the model, see:
+    [1] Schwock et al., *Inferring Neural Communication Dynamics from Field Potentials Using Graph Diffusion Autoregression*
     """
-    edge_list = []
-    graph = Graph()
 
-    for v1 in node_positions:
-        pos_v1 = node_positions[v1]
-
-        left_neighbor = [None, np.inf]
-        bottom_neighbor = [None, np.inf]
-
-        for v2 in node_positions:
-            pos_v2 = node_positions[v2]
-            dist = pos_v1 - pos_v2
-            if dist[1] == 0 and dist[0] > 0 and dist[0] < left_neighbor[1]:
-                left_neighbor[0] = v2
-                left_neighbor[1] = dist[0]
-
-            elif dist[0] == 0 and dist[1] > 0 and dist[1] < bottom_neighbor[1]:
-                bottom_neighbor[0] = v2
-                bottom_neighbor[1] = dist[1]
-
-        if left_neighbor[0] is not None:
-            edge_list.append((np.min([v1, left_neighbor[0]]), np.max([v1, left_neighbor[0]]), {'weight': 1}))
-        if bottom_neighbor[0] is not None:
-            edge_list.append((np.min([v1, bottom_neighbor[0]]), np.max([v1, bottom_neighbor[0]]), {'weight': 1}))
-
-    graph.generate_from_edge_list(edge_list)
-    return graph
-
-def nn_graph(node_positions, n_neighbors=8):
-    """
-    Creates a nearest neighbor graph
-
-    :param node_positions: dictionary with node positions. Each entry should be of the form node_id: np.array(x, y)
-    :param n_neighbors: number of neighbors to connect
-    :return: graph object
-    """
-    edge_list = []
-    graph = Graph()
-
-    for v1 in node_positions:
-        pos_v1 = node_positions[v1]
-
-        dist_to_v1 = []
-        v2_list = []
-        for v2 in node_positions:
-            pos_v2 = node_positions[v2]
-            dist = np.sum((pos_v1 - pos_v2)**2)
-            dist_to_v1.append(dist)
-            v2_list.append(v2)
-        idx_sort = np.argsort(dist_to_v1)
-        v2_list = np.array(v2_list)
-        v1_neighbors = v2_list[idx_sort[1:n_neighbors+1]]
-
-        for v2 in v1_neighbors:
-            if (np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}) not in edge_list:
-                edge_list.append((np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}))
-
-    graph.generate_from_edge_list(edge_list)
-    return graph
-
-def proximity_graph(node_positions, dist_th=5):
-    """
-    Creates graph based on node proximity. All nodes that are less or equal
-    than dist_th away from each other are connected
-
-    :param node_positions: dictionary with node positions. Each entry should be of the form node_id: np.array(x, y)
-    :param dist_th: distance threshold
-    :return: graph object
-    """
-    edge_list = []
-    graph = Graph()
-    for v1 in node_positions:
-        pos_v1 = node_positions[v1]
-
-        v2_list = []
-        for v2 in node_positions:
-            pos_v2 = node_positions[v2]
-            dist = np.sqrt(np.sum((pos_v1 - pos_v2)**2))
-            if dist <= dist_th and dist != 0:
-                v2_list.append(v2)
-
-        for v2 in v2_list:
-            if (np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}) not in edge_list:
-                edge_list.append((np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}))
-
-    graph.generate_from_edge_list(edge_list)
-    return graph
-
-def custom_proximity_graph(node_positions, dist=None):
-    """
-    Creates graph based on node proximity, where the distance threshold can be specified for each node individually
-
-    :param node_positions: dictionary with node positions. Each entry should be of the form node_id: np.array(x, y)
-    :param dist: distance threshold. Can be a tuple (dist1, dist2) or a dictionary with the form
-    dist_dct = {
-        dist1 : [d1_n1, d1_n2, ...],
-        dist2 : [d2_n1, d2_n2, ...],
-        ...
-    }
-    If None, the dist dictionary is initialized such that for our ECoG arrays with variable spacing (Opti Stim and Reach
-    datasets), an 8-neighbor nearest neighbor graph is achieved both the denser and sparser portion of the array.
-    """
-    graph = Graph()
-
-    init_dist_dct = False
-    if dist is None:
-        dist_dct = {
-            1.5 : [],
-            2.9 : []
-        }
-        dist = (1.5, 2.9)
-        init_dist_dct = True
-    elif type(dist) is tuple:
-        dist_dct = {
-            dist[0]: [],
-            dist[1]: []
-        }
-        init_dist_dct = True
-    else:
-        dist_dct = dist
-
-    if init_dist_dct:
-        for v1 in node_positions:
-            v1_neighbor_dist = []
-            for v2 in node_positions:
-                d = np.sqrt(np.sum((node_positions[v1] - node_positions[v2])**2))
-                if d > 0:
-                    v1_neighbor_dist.append(d)
-            if np.min(v1_neighbor_dist) < dist[0]:
-                dist_dct[dist[0]].append(v1)
-            else:
-                dist_dct[dist[1]].append(v1)
-
-    edge_list = []
-    for dist_th in dist_dct:
-        for v1 in dist_dct[dist_th]:
-            pos_v1 = node_positions[v1]
-
-            v2_list = []
-            for v2 in node_positions:
-                pos_v2 = node_positions[v2]
-                dist = np.sqrt(np.sum((pos_v1 - pos_v2)**2))
-                if dist <= dist_th and dist != 0:
-                    v2_list.append(v2)
-
-            for v2 in v2_list:
-                if (np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}) not in edge_list:
-                    edge_list.append((np.min([v1, v2]), np.max([v1, v2]), {'weight': 1}))
-
-    graph.generate_from_edge_list(edge_list)
-    return graph
-
-class CVARModel():
-    """
-    Implements Multivariate autoregressive model with constraints for diffusion and sparsity.
-
-    """
     def __init__(self, graph, K):
         """
-        :param graph: graph object
-        :param K: order of the model
+        Initialize the GDAR model.
+
+        Attributes:
+            K (int): Order of the model.
+            graph (:class:`gdar.graph.Graph`): The graph object on which the model operates.
+            coeffs (np.ndarray or None): Coefficients of the model, initialized to None.
+            _beta (np.ndarray or None): Vectorized coefficients of the model, initialized to None.
+            sigma (np.ndarray or None): Noise covariance matrix, initialized to None.
+            N (int): Number of nodes in the graph.
+            E (int): Number of edges in the graph.
+
+        Parameters:
+            graph (:class:`gdar.graph.Graph`): The graph object on which the model operates.
+            K (int): The order of the model.
         """
         self.K = K
         self.graph = graph
@@ -183,11 +36,53 @@ class CVARModel():
         self.N = graph.N  # number of nodes
         self.E = graph.E  # number of edges
 
-    def fit_unrestricted(self, data):
+    def fit_gdar(self, data, I_sparse=None):
         """
-        Fits VAR model without any constraints
-        :param data: NxT data matrix
-        :return: coefficients
+        Fits the GDAR model to the data. The parameters are estimated in closed form using the generalized least squares
+        (GLS) estimator.
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where T is the number of time steps and N is the number of nodes.
+            I_sparse (np.ndarray or None): Additional enforced sparsity structure. Defined by horizontal stacking of
+                adjacency matrix. If None, the sparsity structure is defined by the graph's adjacency matrix.
+
+        Returns:
+            np.ndarray: Coefficients of the fitted GDAR model.
+        """
+        coeffs = self.fit_restricted(data, sym=True, I_sparse=I_sparse)
+        C = self.get_noise_covariance(data, coeffs)
+        self.coeffs = self.fit_restricted(data, C=C, sym=True, I_sparse=I_sparse)
+        return self.coeffs
+
+    def fit_gvar(self, data, I_sparse=None):
+        """
+        Fits VAR model that is constrained to the graph structure. The parameters are estimated in closed form using the
+        generalized least squares (GLS) estimator. This is the same as the GDAR model, but without the symmetry
+        constraint. In [1], this is referred to as the eVAR model.
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where T is the number of time steps and N is the number of nodes.
+            I_sparse (np.ndarray or None): Additional enforced sparsity structure. Defined by horizontal stacking of
+                adjacency matrix. If None, the sparsity structure is defined by the graph's adjacency matrix.
+
+        Returns:
+            np.ndarray: Coefficients of the fitted GVAR model.
+        """
+        coeffs = self.fit_restricted(data, sym=False, I_sparse=I_sparse)
+        C = self.get_noise_covariance(data, coeffs)
+        self.coeffs = self.fit_restricted(data, C=C, sym=False, I_sparse=I_sparse)
+        return self.coeffs
+
+    def fit_var(self, data):
+        """
+        Fits standard VAR model without any constraints. Parameters are estimated in closed form using the ordinary
+        least squares (OLS) estimator.
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where T is the number of time steps and N is the number of nodes.
+
+        Returns:
+            np.ndarray: Coefficients of the fitted VAR model. Shape is N x N x K, where K is the order of the model.
         """
         # compute model matrices
         _, y, _, Z = self._var_model_matrices(data)
@@ -200,13 +95,17 @@ class CVARModel():
     def fit_restricted(self, data, C=None, sym=False, I_sparse=None):
         """
         Fits VAR model with sparsity and symmetry constraints. If sym=True, this implemented the GDAR model for a given
-        graph
-        :param data: NxT data matrix
-        :param C: covariance matrix
-        :param sym: if True assume symmatrix coefficient matrix
-        :param I_sparse: additional enforced sparsity structure. Defined by
-            horizontal stacking of adjacency matrix
-        :return: coefficients
+        graph. Parameters are estimated in closed form using the generalized least squares (GLS) estimator.
+
+        Parameters:
+            data (np.ndarray) : NxT data matrix, where T is the number of time steps and N is the number of nodes.
+            C (np.ndarray or None): Noise covariance matrix. If None, the noise covariance matrix is the identity matrix.
+            sym (bool): If True, applies symmetry constraint to the model coefficients.
+            I_sparse (np.ndarray or None): Additional enforced sparsity structure. Defined by horizontal stacking of
+                adjacency matrix. If None, the sparsity structure is defined by the graph's adjacency matrix.
+
+        Returns:
+            np.ndarray: Coefficients of the fitted model. Shape is N x N x K, where K is the order of the model.
         """
         # initialize model matrices
         _, y, _, Z = self._var_model_matrices(data)
@@ -233,61 +132,16 @@ class CVARModel():
         self.coeffs = self._beta_to_coeff(self._beta)
         return self.coeffs
 
-    def fit_restricted_cvxpy(self, data, C=None, sym=False, l1_param=0.0, l2_param=0.0, I_sparse=None):
-        """
-        Same as fit_restricted, but using cvxpy to solve the optimization problem. This is slower and seems to be less
-        accurate for large datasets, however it is more flexible and can be used if additional sparsity penalties are
-        desired.
-        :param data: NxT data matrix
-        :param C: covariance matrix
-        :param sym: if True assume symmatrix coefficient matrix
-        :param l1_param: penalty for l1 norm
-        :param l2_param: penalty for l2 norm
-        :param I_sparse: additional enforced sparsity structure. Defined by
-            horizontal stacking of adjacency matrix
-        :return: coefficients
-        """
-        # solve OLS optimization
-        _, y, _, Z = self._var_model_matrices(data)
-        R = self._sparsity_matrix(I_sparse)
-        if sym:
-            S = self._symmetry_matrix(I_sparse)
-            R = R @ S
-        if C is None:
-            C = sparse.identity(self.N)
-        else:
-            C = np.linalg.pinv(C)
-
-        # iterative implementation instead of kronecker product for memory and performance reasons
-        Z2 = Z @ Z.T
-        P = np.zeros((R.shape[0], R.shape[1]))
-        for i, r in enumerate(R.T):
-            P[:,i] = (C @ r.reshape(self.N, Z.shape[0], order='F') @ Z2.T).flatten(order='F')
-        P = R.T @ P
-
-        b = (C @ y.reshape(self.N, Z.shape[1], order='F') @ Z.T).reshape(-1,1, order='F')
-        b2 = b.T @ R
-
-        # use cvxpy to solve problem with constraint
-        P_cp = cp.atoms.affine.wraps.psd_wrap(P)
-        beta = cp.Variable((self.N + self.E) * self.K)
-        #cost = 0.5 * cp.quad_form(beta, P_cp) - b2 @ beta + l1_param * cp.norm1(beta) + l2_param * cp.pnorm(beta, p=2)**2
-        cost = 0.5 * cp.quad_form(beta, P_cp) - b2 @ beta + l2_param * cp.pnorm(beta, p=2)**2
-        prob = cp.Problem(cp.Minimize(cost))
-        #prob.solve(solver='OSQP', eps_abs=1e-9, eps_rel=1e-9, max_iter=100000)
-        #prob.solve(solver='ECOS', abstol=1e-9, reltol=1e-9, max_iters=100000)
-        prob.solve()
-
-        self._beta = R @ beta.value
-        self.coeffs = self._beta_to_coeff(self._beta)
-        return self.coeffs
-
     def get_noise_covariance(self, data, coeffs=None):
         """
-        Estimates noise covariance matrix
-        :param data: NxT data matrix
-        :param coeffs: coefficients
-        :return: noise covariance matrix
+        Estimates noise covariance matrix from the residuals of the fitted model.
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where T is the number of time steps and N is the number of nodes.
+            coeffs (np.ndarray or None): Coefficients of the fitted model. If None, uses the current model coefficients.
+
+        Returns:
+            np.ndarray: Estimated noise covariance matrix. Shape is N x N.
         """
         if coeffs is not None:
             self.coeffs = coeffs
@@ -298,9 +152,16 @@ class CVARModel():
 
     def _var_model_matrices(self, data):
         """
-        Compute matrices for model fitting
-        :param data: NxT data matrix
-        :return: number of time steps, response variables, response variables in matrix form, regressor matrix
+        Helper function that compute matrices for model fitting
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where T is the number of time steps and N is the number of nodes.
+
+        Returns:
+            T (int): Number of time steps.
+            y (np.ndarray): Response variables, flattened.
+            Y (np.ndarray): Response variables in matrix form.
+            Z (np.ndarray): Regressor matrix.
         """
         T = data.shape[1] # number of time steps
         y = data[:, self.K:].flatten(order='F').reshape(-1,1)  # response variables
@@ -313,9 +174,15 @@ class CVARModel():
 
     def _beta_to_coeff(self, beta):
         """
-        Reshape coefficient vector to coefficient matrix
-        :param beta: coefficient vector
-        :return: coefficient matrix
+        Helper function to reshape coefficient vector to coefficient matrix
+
+        Parameters:
+            beta (np.ndarray): Coefficient vector of shape (N^2 * K, 1) where N is the number of nodes and K is the order
+                of the model.
+
+        Returns:
+            coeffs (np.ndarray): Coefficient matrix of shape (N, N, K) where N is the number of nodes and K is the order
+                of the model.
         """
         coeffs = np.zeros((self.N, self.N, self.K))
         for k in range(self.K):
@@ -325,9 +192,15 @@ class CVARModel():
 
     def _sparsity_matrix(self, I_spase=None):
         """
-        Create sparsity constraint matrix from predefined graph
-        :param I_spase: additional enforced sparsity structure.
-        :return: sparsity constraint matrix
+        Helper function to create sparsity constraint matrix from predefined graph
+
+        Parameters:
+            I_spase (np.ndarray or None): Additional enforced sparsity structure. Defined by horizontal stacking of
+                adjacency matrix. If None, the sparsity structure is defined by the graph's adjacency matrix.
+        Returns:
+            R (sparse.csr_matrix): Sparsity constraint matrix of shape (N^2 * K, N_non_zero), where N is the number of
+                nodes and K is the order of the model. N_non_zero is the number of non-zero entries in the sparsity
+                structure.
         """
         if I_spase is None:
             I_spase = (self.graph.A == 1) * 1 + np.identity(self.N)
@@ -347,9 +220,13 @@ class CVARModel():
 
     def _symmetry_matrix(self, I_sparse=None):
         """
-        Create symmetry constraint matrix from predefined graph
-        :param I_sparse: sparsity structure.
-        :return: symmetry constraint matrix
+        Helper function to create symmetry constraint matrix from predefined graph
+
+        Parameters:
+            I_sparse (np.ndarray or None): Additional enforced sparsity structure. Defined by horizontal stacking of
+                adjacency matrix. If None, the sparsity structure is defined by the graph's adjacency matrix.
+        Returns:
+            S_full (sparse.csr_matrix): Symmetry constraint matrix.
         """
         if I_sparse is None:
             I_sparse = np.tile(self.graph.A + np.identity(self.N), self.K)
@@ -385,10 +262,17 @@ class CVARModel():
 
     def spectrum(self, coeffs=None, n=1999):
         """
-        Compute the spectrum of the model coefficients
-        :param coeffs: coefficients
-        :param n: number of frequency points
-        :return: DFT spectrum
+        Compute the spectrum of the model coefficients using the discrete Fourier transform (DFT). This is the basis for
+        many functional connectivity metrics such as Directed Transfer Function (DTF) and Partial Directed Coherence
+        (PDC).
+
+        Parameters:
+            coeffs (np.ndarray or None): Coefficients of the fitted model. If None, uses the current model coefficients.
+            n (int): Number of frequency bins for the DFT.
+
+        Returns:
+            np.ndarray: Coefficient spectrum of shape (N, N, n), where N is the number of nodes and n is the number of
+                frequency bins.
         """
         if coeffs is not None:
             self.coeffs = coeffs
@@ -398,18 +282,29 @@ class CVARModel():
 
     def pdc(self, coeff_spec):
         """
-        Compute partial directed coherence from coefficient spectrum
-        :param coeff_spec: coefficient spectrum
-        :return: partial directed coherence
+        Compute Partial Directed Coherence (PDC) from coefficient spectrum. PDC is a measure of the directed
+        connectivity between two nodes in a multivariate autoregressive model.
+
+        Parameters:
+            coeff_spec (np.ndarray): Coefficient spectrum of shape (N, N, n), where N is the number of nodes and n is
+                the number of frequency bins.
+
+        Returns:
+            np.ndarray: PDC estimate of shape (N, N, n).
         """
         pdc = np.abs(coeff_spec / np.sqrt(np.sum(np.abs(coeff_spec)**2, axis=0)))
         return pdc
 
     def dtf(self, coeff_spec):
         """
-        Compute directed transfer function from coefficient spectrum
-        :param coeff_spec: coefficient spectrum
-        :return: directed transfer function
+        Compute Directed Transfer Function (DTF) from coefficient spectrum. DTF is a measure of the directed
+        connectivity between two nodes in a multivariate autoregressive model.
+        Parameters:
+            coeff_spec (np.ndarray): Coefficient spectrum of shape (N, N, n), where N is the number of nodes and n is
+                the number of frequency bins.
+
+        Returns:
+            np.ndarray: DTF estimate of shape (N, N, n).
         """
         spec_inv = np.zeros(coeff_spec.shape, dtype=np.complex_)
         for i in range(coeff_spec.shape[-1]):
@@ -422,8 +317,13 @@ class CVARModel():
         Compute parameter connectivity from coefficient spectrum. This is a measure of the strength of the connection
         between two nodes from the model coefficients and is defined as the absolute value of the coefficient spectrum
         normalized by the geometric mean of the denominators of the coefficients of the nodes.
-        :param coeff_spec: coefficient spectrum
-        :return: parameter connectivity
+
+        Parameters:
+            coeff_spec (np.ndarray): Coefficient spectrum of shape (N, N, n), where N is the number of nodes and n is
+                the number of frequency bins.
+
+        Returns:
+            np.ndarray: Parameter connectivity estimate of shape (N, N, n).
         """
         param_c = np.zeros(coeff_spec.shape)
         for e in self.graph.edge_list:
@@ -440,13 +340,20 @@ class CVARModel():
             param_c[e[1], e[0]] = c
         return param_c
 
-    def get_flow_mvar(self, data, coeffs=None, constrained=False):
+    def get_flow_var(self, data, coeffs=None, constrained=False):
         """
-        Compute the VAR flow signal (i.e. bidirectional flow)
-        :param data: NxT data matrix
-        :param coeffs: coefficients
-        :param constrained: if True, compute flow only for edges of the predefined graph
-        :return: flow signal
+        Compute the VAR flow signal (i.e. bidirectional flow). The computed flow matrix either has shape
+        N x N x T - K + 1 if the flow is computed for all possible edges or shape 2 x E x T - K + 1 if the flow is
+        computed only for the edges of the predefined graph. The flow is computed by convolving the data with the model
+        coefficients.
+
+        Parameters:
+            data (np.ndarray): N x T data matrix, where N is the number of nodes and T is the number of time points.
+            coeffs (np.ndarray): Fitted VAR model coefficients of appropriate shape.
+            constrained (bool): If True, compute flow only along edges of the predefined graph.
+
+        Returns:
+            :class:`gdar.flow.FlowSignal`: FlowSignal object containing the computed flow signal.
         """
         if coeffs is not None:
             self.coeffs = coeffs
@@ -470,12 +377,18 @@ class CVARModel():
         flow_signal = FlowSignal(graph=self.graph, f=flow)
         return flow_signal
 
-    def get_flow_diffusion(self, data, coeffs=None):
+    def get_flow_gdar(self, data, coeffs=None):
         """
-        Compute the GDAR flow signal
-        :param data: NxT data matrix
-        :param coeffs: coefficients
-        :return: flow signal
+        Compute the GDAR flow signal (i.e. unidirectional flow) based on the model coefficients. The flow is computed by
+        convolving the gradient of the data with the model coefficients. The flow matrix has shape E x T, where E is the
+        number of edges in the graph and T is the number of time points minus K + 1 (the order of the model).
+
+        Parameters:
+            data (np.ndarray): NxT data matrix, where N is the number of nodes and T is the number of time points.
+            coeffs (np.ndarray): Fitted GDAR model coefficients of appropriate shape.
+
+        Returns:
+            :class:`gdar.flow.FlowSignal`: FlowSignal object containing the computed flow signal.
         """
         if coeffs is not None:
             self.coeffs = coeffs

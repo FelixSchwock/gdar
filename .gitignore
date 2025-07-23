@@ -54,4 +54,7 @@ venv.bak/
 Thumbs.db
 desktop.ini
 
+# debugging files
+debug.ipynb
+
 
