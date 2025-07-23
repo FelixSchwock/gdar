@@ -24,10 +24,11 @@ def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 def set_edge_weights(edge_list, edge_weights=None):
 	"""
 	Set weights for edges in a graph. This is needed for creating a NetworkX graph with weighted edges.
+
 	Parameters:
 		edge_list (list): List of edges in the graph, where each edge is a tuple (node1, node2).
 		edge_weights (list, optional): List of weights corresponding to each edge. If None, all edges are assigned a
-		weight of 1.
+			weight of 1.
 	Returns:
 		list: List of edges with weights, where each edge is a tuple (node1, node2, {'weight': weight}).
 	"""
