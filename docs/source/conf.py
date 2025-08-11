@@ -1,11 +1,12 @@
 # Configuration file for the Sphinx documentation builder.
-
+from pathlib import Path
 import os
 import sys
 
 # -- Path setup -----------------------------------------------------
-# Add project root to sys.path so autodoc can find gdar
-sys.path.insert(0, os.path.abspath('../..'))
+# docs/source/conf.py  -> project root is two parents up
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))   # so `import gdar` works regardless of CWD
 
 # -- Project information --------------------------------------------
 project = 'GDAR'
