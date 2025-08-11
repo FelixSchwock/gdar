@@ -47,13 +47,15 @@ def set_edge_weights(edge_list, edge_weights=None):
 
 	return edge_list_with_weights
 
-def plot_graph(graph, directed=True, **kwargs):
+def plot_graph(graph, directed=True, projection=None, **kwargs):
 	"""
 	Plot graph using NetworkX.
 
 	Parameters:
 		graph (:class:`gdar.graph.Graph`): Graph object containing edge_list and node_positions.
 		directed (bool): If True, plot as directed graph; otherwise, as undirected.
+		projection (str): Projection if x, y, z coordinates are given in node_positions. Options are 'xy', 'xz', 'yz',
+			or None (default). If None, the first two dimensions (xy) are used.
 		kwargs: Additional keyword arguments for the NetworkX draw function.
 	"""
 
@@ -74,9 +76,19 @@ def plot_graph(graph, directed=True, **kwargs):
 		# reorder node_color according to node_list in G
 		kwargs['node_color'] = [kwargs['node_color'][node] for node in G]
 
-	nx.draw(G, pos=graph.node_positions, **kwargs)
+	# determine positions for nodes based on projection
+	if projection is None or projection == 'xy' or len(graph.node_positions[0]) == 2:
+		pos = {node: (graph.node_positions[node][0], graph.node_positions[node][1]) for node in graph.node_positions}
+	elif projection == 'yz':
+		pos = {node: (graph.node_positions[node][1], graph.node_positions[node][2]) for node in graph.node_positions}
+	elif projection == 'xz':
+		pos = {node: (graph.node_positions[node][0], graph.node_positions[node][2]) for node in graph.node_positions}
+	else:
+		raise ValueError("Invalid projection. Choose from 'xy', 'xz', 'yz', or None.")
 
-def plot_flow_graph(graph, flow_vector, directed=True, **kwargs):
+	nx.draw(G, pos=pos, **kwargs)
+
+def plot_flow_graph(graph, flow_vector, directed=True, projection=None, **kwargs):
 	"""
 	Plot flow graph using NetworkX.
 
@@ -84,6 +96,8 @@ def plot_flow_graph(graph, flow_vector, directed=True, **kwargs):
 		graph (:class:`gdar.graph.Graph`): Graph object containing edge_list and node_positions.
 		flow_vector (np.ndarray): Flow vector with flow values for each edge.
 		directed (bool): If True, plot as directed graph; otherwise, as undirected.
+		projection (str): Projection if x, y, z coordinates are given in node_positions. Options are 'xy', 'xz', 'yz',
+			or None (default). If None, the first two dimensions (xy) are used.
 		kwargs: Additional keyword arguments for the NetworkX draw function. The following keyword arguments are set
 		automatically if not provided, or are in addition to the ones already set by NetworkX draw function:
 			- edge_cmap: Colormap for edge weights (default: cm.bwr).
@@ -168,8 +182,21 @@ def plot_flow_graph(graph, flow_vector, directed=True, **kwargs):
 	else:
 		kwargs_extended['ax'] = kwargs['ax']
 
+	# determine positions for nodes based on projection
+	if projection is None or projection == 'xy' or len(graph.node_positions[0]) == 2:
+		pos = {node: (graph.node_positions[node][0], graph.node_positions[node][1]) for node in
+			   graph.node_positions}
+	elif projection == 'yz':
+		pos = {node: (graph.node_positions[node][1], graph.node_positions[node][2]) for node in
+			   graph.node_positions}
+	elif projection == 'xz':
+		pos = {node: (graph.node_positions[node][0], graph.node_positions[node][2]) for node in
+			   graph.node_positions}
+	else:
+		raise ValueError("Invalid projection. Choose from 'xy', 'xz', 'yz', or None.")
+
 	nx.draw(
-		G, pos=graph.node_positions, edge_color=edge_color,
+		G, pos=pos, edge_color=edge_color,
 		**kwargs
 	)
 
