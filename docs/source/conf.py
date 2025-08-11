@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 # -- Project information --------------------------------------------
 project = 'GDAR'
 author = 'Felix Schwock'
-release = '0.1.0'  # Keep this in sync with your pyproject.toml or __version__
+release = '0.1.1'  # Keep this in sync with your pyproject.toml or __version__
 
 # -- General configuration ------------------------------------------
 extensions = [
