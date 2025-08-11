@@ -8,7 +8,13 @@ authors = [
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.7"
-dependencies = []
+dependencies = [
+    "numpy>=1.22",
+    "matplotlib>=3.7",
+    # add others you import at import-time, e.g.:
+    "scipy>=1.8",
+    "networkx>=2.8",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
