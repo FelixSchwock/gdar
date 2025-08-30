@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))   # so `import gdar` works regardless of CWD
 # -- Project information --------------------------------------------
 project = 'GDAR'
 author = 'Felix Schwock'
-release = '0.1.1'  # Keep this in sync with your pyproject.toml or __version__
+release = '0.1.2'  # Keep this in sync with your pyproject.toml or __version__
 
 # -- General configuration ------------------------------------------
 extensions = [

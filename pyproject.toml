@@ -1,6 +1,6 @@
 [project]
 name = "gdar"
-version = "0.1.1"
+version = "0.1.2"
 description = "Implementation of Graph Diffusion Autoregressive (GDAR) model"
 authors = [
     { name="Felix Schwock", email="fschwock@gmail.com" }

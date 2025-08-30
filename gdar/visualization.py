@@ -3,6 +3,9 @@ import numpy as np
 import networkx as nx
 from matplotlib import cm
 from matplotlib.colors import LinearSegmentedColormap
+from scipy.interpolate import griddata
+from matplotlib.patches import FancyArrowPatch
+
 
 def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 	"""
@@ -99,7 +102,7 @@ def plot_flow_graph(graph, flow_vector, directed=True, projection=None, **kwargs
 		projection (str): Projection if x, y, z coordinates are given in node_positions. Options are 'xy', 'xz', 'yz',
 			or None (default). If None, the first two dimensions (xy) are used.
 		kwargs: Additional keyword arguments for the NetworkX draw function. The following keyword arguments are set
-		automatically if not provided, or are in addition to the ones already set by NetworkX draw function:
+			automatically if not provided, or are in addition to the ones already set by NetworkX draw function:
 			- edge_cmap: Colormap for edge weights (default: cm.bwr).
 			- vlim_quantile: Quantile for setting vmin and vmax of the colormap (default: None).
 			- edge_vmin: Minimum value for edge weights (default: min(flow_vector)).
@@ -211,3 +214,114 @@ def plot_flow_graph(graph, flow_vector, directed=True, projection=None, **kwargs
 			sm, pad=kwargs_extended['cmap_pad'], label=kwargs_extended['color_label'], extend=kwargs_extended['extend'],
 			ax=kwargs_extended['ax']
 		)
+
+def plot_flow_field(graph, flow_vector, projection='xy', plot_potentials=True, origin='lower', ax=None,
+					cmap='bwr_r', vmin=-0.5, vmax=0.5, interpolation='bilinear', node_size=30, node_color='lightgray',
+					flow_filed_scaling_factor=15, arrowstyle='-|>', mutation_scale=8, arrow_color='black', linewidth=2,):
+	"""
+	Plot flow and potential field from flow vector. The potential field is computed as graph.B1 @ flow_vector and plotted
+	as a background using imshow. The flow field is computed as the average flow at each node.
+
+	Parameters:
+		graph (:class:`gdar.graph.Graph`): Graph object containing edge_list and node_positions.
+		flow_vector (np.ndarray): Flow vector with flow values for each edge.
+		projection (str): Projection if x, y, z coordinates are given in node_positions. Options are 'xy', 'xz', 'yz',
+			or None (default). If None, the first two dimensions (xy) are used.
+		plot_potentials (bool): If True, plot potential field as background (default: True).
+		origin (str): Origin parameter for imshow (default: 'lower').
+		ax (matplotlib axis): Matplotlib axis to draw on (default: None, creates new figure).
+		cmap (str or Colormap): Colormap for potential field (default: 'bwr_r').
+		vmin (float): Minimum value for potential field colormap (default: -0.5).
+		vmax (float): Maximum value for potential field colormap (default: 0.5).
+		interpolation (str): Interpolation method for imshow (default: 'bilinear').
+		node_size (int): Size of nodes in the graph (default: 30).
+		node_color (str or list): Color of nodes in the graph (default: 'lightgray').
+		flow_filed_scaling_factor (float): Scaling factor for flow field arrows (default: 15).
+		arrowstyle (str): Arrow style for flow field arrows (default: '-|>').
+		mutation_scale (int): Mutation scale for flow field arrows (default: 8).
+		arrow_color (str): Color of flow field arrows (default: 'black').
+		linewidth (float): Line width of flow field arrows (default: 2).
+	Returns:
+		tuple or array: If plot_potentials is True, returns a tuple (potentials, flow_vector) where potentials is the
+			potential field and flow_vector is the flow vector at each node. If plot_potentials is False, returns
+			only the flow_vector at each node.
+	"""
+
+	# flow field
+	flow_field_dct = {}
+
+	if ax is None:
+		fig, ax = plt.subplots(figsize=(8, 8))
+
+	# determine positions for nodes based on projection
+	if projection is None or projection == 'xy' or len(graph.node_positions[0]) == 2:
+		pos = {node: np.array([graph.node_positions[node][0], graph.node_positions[node][1]]) for node in graph.node_positions}
+	elif projection == 'yz':
+		pos = {node: np.array([graph.node_positions[node][1], graph.node_positions[node][2]]) for node in graph.node_positions}
+	elif projection == 'xz':
+		pos = {node: np.array([graph.node_positions[node][0], graph.node_positions[node][2]]) for node in graph.node_positions}
+	else:
+		raise ValueError("Invalid projection. Choose from 'xy', 'xz', 'yz', or None.")
+
+	if plot_potentials:
+		# potential field
+		potentials = graph.B1 @ flow_vector
+
+		# get node_positions as array
+		x_coords = np.array([pos[n][0] for n in pos])
+		y_coords = np.array([pos[n][1] for n in pos])
+
+		# interpolate positions using grdiddata
+		xi = np.linspace(np.min(x_coords), np.max(x_coords), 100)
+		yi = np.linspace(np.min(y_coords), np.max(y_coords), 100)
+		X, Y = np.meshgrid(xi, yi)
+		Z = griddata((x_coords, y_coords), potentials, (X, Y), method='cubic')
+
+		# create figure
+		plt.imshow(Z, extent=(np.min(x_coords), np.max(x_coords), np.min(y_coords), np.max(y_coords)), origin=origin,
+				   cmap=cmap, vmin=vmin, vmax=vmax, interpolation=interpolation)
+
+	# plot node graph on top
+	plot_graph(graph, ax=ax, node_color=node_color, node_size=node_size, width=0, directed=False)
+
+	for n in range(graph.N):
+		neighbors = graph.neighbors[n]
+		flow_vectors = 0 + 0j
+		for neighbor in neighbors:
+			# identify edge angle
+			if (n, neighbor) in graph.edge_list or (n, neighbor, {'weight': 1}) in graph.edge_list:
+				tail_node = n
+				head_node = neighbor
+			else:
+				tail_node = neighbor
+				head_node = n
+			direction_cart = pos[head_node] - pos[tail_node]
+			direction_angle = np.angle(direction_cart[0] + 1j * direction_cart[1])
+			edge_idx = graph.edge_list.index((tail_node, head_node))
+			flow_vectors += flow_vector[edge_idx] * np.exp(1j * direction_angle) / len(neighbors)
+		flow_field_dct[n] = {
+			'flow': flow_vectors,
+			'start': pos[n]
+		}
+
+	# plot flow vector field
+	for n in range(graph.N):
+		flow_vector = flow_field_dct[n]['flow']
+		start = flow_field_dct[n]['start']
+		ax.add_patch(
+			FancyArrowPatch(
+				start,
+				start + (np.real(flow_vector) * flow_filed_scaling_factor, np.imag(flow_vector) * flow_filed_scaling_factor),
+				arrowstyle=arrowstyle,
+				mutation_scale=mutation_scale,
+				color=arrow_color,
+				linewidth=linewidth,
+				zorder=10
+			)
+		)
+
+	if plot_potentials:
+		plt.colorbar(label='potential', pad=-0.05)
+		return potentials, flow_vectors
+	else:
+		return flow_vectors
