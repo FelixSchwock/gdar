@@ -115,6 +115,23 @@ class Graph:
 
 		self.generate_from_edge_list(edge_list_new)
 
+	def remove_edges(self, edge_list):
+		"""
+		Remove edges from existing graph.
+
+		Parameters:
+			edge_list (list): List of edges to remove, where each edge is a tuple (from_node, to_node).
+			Note that the edge list should not contain edges that are not in the graph.
+		"""
+		edge_list_new = copy.deepcopy(self.edge_list)
+		for edge in edge_list:
+			if (edge[0], edge[1]) in edge_list_new:
+				edge_list_new.remove((edge[0], edge[1]))
+			elif (edge[1], edge[0]) in edge_list_new:
+				edge_list_new.remove((edge[1], edge[0]))
+
+		self.generate_from_edge_list(edge_list_new)
+
 	def nn_graph(self, node_positions, n_neighbors=8):
 		"""
 		Creates a nearest neighbor graph if either x and y or x, y, and z coordinates are given.

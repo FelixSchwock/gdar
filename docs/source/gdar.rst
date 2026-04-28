@@ -9,37 +9,37 @@ gdar.flow module
 
 .. automodule:: gdar.flow
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
 
 gdar.gdar\_model module
 -----------------------
 
 .. automodule:: gdar.gdar_model
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
 
 gdar.graph module
 -----------------
 
 .. automodule:: gdar.graph
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
 
 gdar.visualization module
 -------------------------
 
 .. automodule:: gdar.visualization
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
 
 Module contents
 ---------------
 
 .. automodule:: gdar
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
