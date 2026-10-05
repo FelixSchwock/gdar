@@ -362,16 +362,16 @@ class GDARModel():
             flow = np.zeros((N, N, data.shape[1] - self.K + 1))
             for i in range(N):
                 for j in range(N):
-                    h = self.coeffs[i,j]
+                    h = self.coeffs[j,i]
                     flow[i,j] = signal.convolve(data[i], h[::-1], mode='valid')
         else:
             E = self.graph.E
             flow = np.zeros((2, E, data.shape[1] - self.K + 1))
             for k, e in enumerate(self.graph.edge_list):
-                h = self.coeffs[e[0], e[1]]
+                h = self.coeffs[e[1], e[0]]
                 flow[0, k, :] = signal.convolve(data[e[0]], h[::-1], mode='valid')
 
-                h = self.coeffs[e[1], e[0]]
+                h = self.coeffs[e[0], e[1]]
                 flow[1, k, :] = signal.convolve(data[e[1]], h[::-1], mode='valid')
 
         flow_signal = FlowSignal(graph=self.graph, f=flow)
