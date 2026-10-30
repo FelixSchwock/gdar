@@ -24,7 +24,7 @@ def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
 		cmap(np.linspace(minval, maxval, n)))
 	return new_cmap
 
-def set_edge_weights(edge_list, edge_weights=None):
+def set_edge_weights(edge_list, edge_weights=None, directed=True):
 	"""
 	Set weights for edges in a graph. This is needed for creating a NetworkX graph with weighted edges.
 
@@ -42,9 +42,12 @@ def set_edge_weights(edge_list, edge_weights=None):
 
 	edge_list_with_weights = []
 	for i in range(len(edge_weights)):
-		if edge_weights[i] < 0:
-			# flip direction of edge if weight is negative
-			edge_list_with_weights.append((edge_list[i][1], edge_list[i][0], {'weight': -edge_weights[i]}))
+		if directed:
+			if edge_weights[i] < 0:
+				# flip direction of edge if weight is negative
+				edge_list_with_weights.append((edge_list[i][1], edge_list[i][0], {'weight': -edge_weights[i]}))
+			else:
+				edge_list_with_weights.append((edge_list[i][0], edge_list[i][1], {'weight': edge_weights[i]}))
 		else:
 			edge_list_with_weights.append((edge_list[i][0], edge_list[i][1], {'weight': edge_weights[i]}))
 
@@ -117,7 +120,7 @@ def plot_flow_graph(graph, flow_vector, directed=True, projection=None, **kwargs
 			- edgelist: List of edges to highlight in the plot.
 			- ax: Matplotlib axis to draw on (default: current axis).
 	"""
-	edge_list_with_weights = set_edge_weights(graph.edge_list, edge_weights=flow_vector)
+	edge_list_with_weights = set_edge_weights(graph.edge_list, edge_weights=flow_vector, directed=directed)
 
 	if not directed:
 		G = nx.Graph(edge_list_with_weights)
